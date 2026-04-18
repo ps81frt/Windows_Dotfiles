@@ -47,7 +47,7 @@ function Prompt {
 function reboot   { Restart-Computer }
 function poweroff { Stop-Computer }
 function logout   { shutdown /l }
-function free     { $sum = (Get-Process | Measure-Object WorkingSet -Sum).Sum; "{0:N2} MB" -f ($sum / 1MB) }
+function free  { $os=Get-CimInstance Win32_OperatingSystem; $t=[math]::Round($os.TotalVisibleMemorySize/1MB,2); $f=[math]::Round($os.FreePhysicalMemory/1MB,2); "Used: $([math]::Round($t-$f,2)) GB / Total: $t GB" }
 function df { Get-PSDrive -PSProvider FileSystem | Select-Object Name, @{N='Used(GB)';E={[math]::Round($_.Used/1GB,2)}}, @{N='Free(GB)';E={[math]::Round($_.Free/1GB,2)}} | Format-Table -AutoSize }
 function adm { $i=[Security.Principal.WindowsIdentity]::GetCurrent(); $p=[Security.Principal.WindowsPrincipal]::new($i); [pscustomobject]@{ AdminAccount=$p.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator); ElevatedUAC=[bool](whoami /groups | Select-String "S-1-16-12288") } }
 
@@ -56,7 +56,7 @@ function blkid-full { $physDisks = Get-PhysicalDisk; $reliability = $physDisks |
 function uptime   { (Get-Date) - (gcim Win32_OperatingSystem).LastBootUpTime }
 function sysinfo  { Get-ComputerInfo }
 function top      { Get-Process | Sort-Object CPU -Descending | Select-Object -First 20 }
-function htop     { while ($true) { Clear-Host; Get-Process | Sort-Object CPU -Descending | Select-Object -First 20 Name, CPU, WorkingSet | Format-Table -AutoSize; Start-Sleep 2 } }
+function htop  { try { while ($true) { Clear-Host; Get-Process | Sort-Object CPU -Descending | Select-Object -First 20 Name, CPU, WorkingSet | Format-Table -AutoSize; Start-Sleep 2 } } finally { Clear-Host; Write-Host "htop terminated." } }
 
 # DIR
 function la   { Get-ChildItem -Force }
@@ -76,7 +76,7 @@ function fetch { $os=Get-CimInstance Win32_OperatingSystem; $cpu=Get-CimInstance
 function f { param($p) $i=Get-Item $p -ErrorAction Stop; $l=$w=$c=$e=$t=$h=$null; if(-not $i.PSIsContainer -and (Test-Path -LiteralPath $i.FullName)){try{$r=[System.IO.StreamReader]::new($i.FullName,$true);$e=$r.CurrentEncoding.EncodingName;$l=0;$w=0;$c=0;while(($line=$r.ReadLine()) -ne $null){$l++;$c+=$line.Length;$w+=($line -split '\s+'|Where-Object{$_}).Count};$r.Close();$t=switch($i.Extension.ToLower()){".txt"{"Text file"}".log"{"Log file"}".csv"{"CSV file"}".xml"{"XML file"}".json"{"JSON file"}".exe"{"Executable"}".dll"{"Library"}default{"Unknown / binary"}};$h=(Get-FileHash $i.FullName -Algorithm SHA256).Hash}catch{$e=$null;$l=$w=$c=0;$t="Unreadable file";$h=$null}finally{if($r){$r.Close()}}};[pscustomobject]@{Name=$i.Name;Path=$i.FullName;Size_KB=[math]::Round($i.Length/1KB,2);Created=$i.CreationTime;Modified=$i.LastWriteTime;Type=$(if($i.PSIsContainer){"Directory"}else{$t});Encoding=$e;Lines=$l;Words=$w;Characters=$c;SHA256=$h} }
 # FICHIERS
 function mkcd  { param($dir) New-Item -ItemType Directory $dir | Set-Location }
-function touch { param($f) New-Item -ItemType File $f }
+function touch { param($f) if (Test-Path $f) { (Get-Item $f).LastWriteTime = Get-Date } else { New-Item -ItemType File $f | Out-Null } }
 
 # RESEAU
 function ipa      { ipconfig; route print }
@@ -84,7 +84,7 @@ function netinfo  { Get-NetIPConfiguration }
 function ports    { netstat -ano }
 function pingg    { ping 8.8.8.8 }
 function flushdns { ipconfig /flushdns }
-function myip     { (irm "https://api.ipify.org") }
+function myip  { try { Invoke-RestMethod "https://api.ipify.org" -TimeoutSec 5 } catch { Write-Host "Unable to reach ipify: $_" } }
 function dns      { Get-DnsClientServerAddress | Where-Object { $_.AddressFamily -eq 2 } | Select-Object InterfaceAlias, ServerAddresses | Format-Table -AutoSize }
 
 # UTILS

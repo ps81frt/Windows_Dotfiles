@@ -48,6 +48,7 @@ function reboot     { Restart-Computer }
 function poweroff   { Stop-Computer }
 function logout     { shutdown /l }
 function free       { $os=Get-CimInstance Win32_OperatingSystem; $t=[math]::Round($os.TotalVisibleMemorySize/1MB,2); $f=[math]::Round($os.FreePhysicalMemory/1MB,2); "Used: $([math]::Round($t-$f,2)) GB / Total: $t GB" }
+function lsscsi {$sg="sg_scan"; $smart="smartctl"; $res=@(); & $sg | % { if($_ -match "PD(\d+)\s+\[(\w)\]\s+(.+?)\s{2,}"){ $pd=$matches[1]; $letter=$matches[2]; $model=$matches[3].Trim(); $dev="/dev/sd"+[char](97+[int]$pd); $out=& $smart -A $dev 2>$null; function val($k){ $l=($out|Select-String $k|Select-Object -First 1); if($l -and $l.ToString() -match "(\d+)$"){[int64]$matches[1]} else {0}}; $crc=val "UDMA_CRC_Error_Count"; $pending=val "Current_Pending_Sector"; $realloc=val "Reallocated_Sector_Ct"; if($pending -gt 0 -or $realloc -gt 0){$status="BAD";$prio=0} elseif($crc -gt 100){$status="SATA";$prio=1} else{$status="OK";$prio=2}; $res+= [pscustomobject]@{PD="PD$pd";DEV=$dev;L=$letter;MODEL=$model;CRC=$crc;PEND=$pending;REALLOC=$realloc;STATUS=$status;PRIO=$prio} } }; "{0,-5} {1,-10} {2,-3} {3,-28} {4,-6} {5,-6} {6,-7} {7}" -f "PD","DEV","L","MODEL","CRC","PEND","REALLOC","STATUS"; "-"*90; $res | sort PRIO | % { $color = if($_.STATUS -eq "BAD"){"Red"} elseif($_.STATUS -eq "SATA"){"Yellow"} else{"Green"}; Write-Host ("{0,-5} {1,-10} {2,-3} {3,-28} {4,-6} {5,-6} {6,-7} {7}" -f $_.PD,$_.DEV,$_.L,$_.MODEL,$_.CRC,$_.PEND,$_.REALLOC,$_.STATUS) -ForegroundColor $color } }
 function df         { Get-PSDrive -PSProvider FileSystem | Select-Object Name, @{N='Used(GB)';E={[math]::Round($_.Used/1GB,2)}}, @{N='Free(GB)';E={[math]::Round($_.Free/1GB,2)}} | Format-Table -AutoSize }
 function adm        { $i=[Security.Principal.WindowsIdentity]::GetCurrent(); $p=[Security.Principal.WindowsPrincipal]::new($i); [pscustomobject]@{ AdminAccount=$p.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator); ElevatedUAC=[bool](whoami /groups | Select-String "S-1-16-12288") } }
 function blkid      { Get-Disk | ForEach-Object { $d = $_; Get-Partition -DiskNumber $d.Number | Select-Object @{N='Disk';E={$d.FriendlyName}}, @{N='Serial';E={$d.SerialNumber}}, DiskNumber, PartitionNumber, @{N='Size(GB)';E={[math]::Round($_.Size/1GB,2)}}, @{N='FS';E={ $v = (Get-Volume -Partition $_ -ErrorAction SilentlyContinue).FileSystemType; if ($_.Type -eq 'System') { 'EFI (FAT32)' } elseif ($_.Type -eq 'Reserved') { 'MSR' } elseif ($v) { $v } else { '?' } }}, Type, Guid } | Format-Table -AutoSize }
@@ -60,6 +61,7 @@ function fetch      { $os=Get-CimInstance Win32_OperatingSystem; $cpu=Get-CimIns
 function pkill      { param($name) Get-Process $name | Stop-Process -Force }
 function pgrep      { param($name) Get-Process | Where-Object { $_.Name -like "*$name*" } }
 function path       { $env:PATH -split ';' | Where-Object { $_ } }
+function cut { param([string]$d=" ",[int]$f=1) process { $p = $_ -split [regex]::Escape($d); if($p.Count -ge $f){ $p[$f-1].Trim() } } }
 
 # NAVIGATION
 function ..   { cd .. }
@@ -162,6 +164,7 @@ function aliases {
     Write-Host "  pkill <n>       Tuer un processus par nom"
     Write-Host "  pgrep <n>       Chercher un processus par nom"
     Write-Host "  path            Afficher le PATH proprement"
+    Write-Host "  lsscsi          lsscsi Inventaire disques + santé SMART (CRC, secteurs, statut: OK/SATA/BAD)"
     Write-Host ""
     Write-Host "  NAVIGATION"
     Write-Host "  ..              cd .."
@@ -210,6 +213,7 @@ function aliases {
     Write-Host "  UTILS"
     Write-Host "  grep <p> <f>    Chercher un pattern dans un fichier"
     Write-Host "  which <cmd>     Chemin d'une commande"
+    Write-Host "  cut -d X -f N   Split ligne et prendre champ N (ex: cut -d '-->' -f 2)"
     Write-Host "  rdp <host>      Ouvrir RDP vers un hôte"
     Write-Host "  msra            Assistance à distance Windows"
     Write-Host "  giico <path>    Infos icône .ico (tailles incluses)"

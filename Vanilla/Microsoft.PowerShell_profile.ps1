@@ -43,6 +43,9 @@ function Prompt {
     )
 }
 
+# Securité
+function vt {param([string]$file);if(!$file){$file=Read-Host "Drag & drop file or enter path"};$file=$file.Trim('"');if(!(Test-Path $file)){Write-Error "File not found";return};do{$api=(Read-Host "VT API key").Trim('"')}until($api -and $api -notmatch '\\|:');Get-AuthenticodeSignature "$file"|Select -ExpandProperty SignerCertificate|Format-List *;f "$file";Get-Content "$file" -Stream Zone.Identifier -ea 0;$sig=Get-AuthenticodeSignature $file;$hash=(Get-FileHash $file -Algorithm SHA256).Hash;try{$vt=Invoke-RestMethod "https://www.virustotal.com/api/v3/files/$hash" -Headers @{"x-apikey"=$api} -ea Stop;$mal=$vt.data.attributes.last_analysis_stats.malicious;$sus=$vt.data.attributes.last_analysis_stats.suspicious}catch{$mal="ERR";$sus="ERR"};[PSCustomObject]@{File=$file;Signature=$sig.Status;Publisher=$sig.SignerCertificate.Subject;SHA256=$hash;VT_Malicious=$mal;VT_Suspicious=$sus}}
+
 # SYSTEME
 function reboot     { Restart-Computer }
 function poweroff   { Stop-Computer }
@@ -62,6 +65,12 @@ function pkill      { param($name) Get-Process $name | Stop-Process -Force }
 function pgrep      { param($name) Get-Process | Where-Object { $_.Name -like "*$name*" } }
 function path       { $env:PATH -split ';' | Where-Object { $_ } }
 function cut { param([string]$d=" ",[int]$f=1) process { $p = $_ -split [regex]::Escape($d); if($p.Count -ge $f){ $p[$f-1].Trim() } } }
+function Rdump { if (-not $args[0]) { $path = (Read-Host "Chemin du .dmp").Trim('"') } else { $path = $args[0] } ; cdb -z $path -c "!analyze -v; q" 2>$null | grep -E "IMAGE_NAME|FAILURE_BUCKET|SYMBOL_NAME|BUGCHECK_CODE" }
+$locateDB = "$env:USERPROFILE\.locatedb"
+function updatedb { $lastRun = if (Test-Path $locateDB) { (Get-Item $locateDB).LastWriteTime } else { [datetime]::MinValue }; Write-Host "Indexation depuis $lastRun..."; $new = Get-ChildItem C:\ -Recurse -ErrorAction SilentlyContinue -Force | Where-Object { $_.LastWriteTime -gt $lastRun } | Select-Object -ExpandProperty FullName; if (Test-Path $locateDB) { ((Get-Content $locateDB) + $new) | Sort-Object -Unique | Set-Content $locateDB } else { $new | Set-Content $locateDB }; Write-Host "Done : $((Get-Content $locateDB).Count) entrees" }
+function updatedb-full { Write-Host "Full rescan..."; Get-ChildItem C:\ -Recurse -ErrorAction SilentlyContinue -Force | Select-Object -ExpandProperty FullName | Set-Content $locateDB; Write-Host "Done : $((Get-Content $locateDB).Count) entrees" }
+function locate { param([string]$n); if (-not (Test-Path $locateDB)) { Write-Host "Lance updatedb d'abord"; return }; Get-Content $locateDB | Where-Object { $_ -like "*$n*" } }
+
 
 # NAVIGATION
 function ..   { cd .. }
@@ -165,6 +174,7 @@ function aliases {
     Write-Host "  pgrep <n>       Chercher un processus par nom"
     Write-Host "  path            Afficher le PATH proprement"
     Write-Host "  lsscsi          lsscsi Inventaire disques + santé SMART (CRC, secteurs, statut: OK/SATA/BAD)"
+    Write-Host "Rdump <path.dmp>  Analyse un minidump BSOD et retourne le driver coupable"
     Write-Host ""
     Write-Host "  NAVIGATION"
     Write-Host "  ..              cd .."

@@ -20,6 +20,17 @@ function Prompt {
     $cwd = $PWD.Path -replace [regex]::Escape($HOME), '~'
     $reset = "$esc[0m"
 
+    # 🔥 ADMIN CHECK
+    $principal = [Security.Principal.WindowsPrincipal]::new(
+        [Security.Principal.WindowsIdentity]::GetCurrent()
+    )
+    $isAdmin = $principal.IsInRole(
+        [Security.Principal.WindowsBuiltInRole]::Administrator
+    )
+
+    # 🎨 COLOR USER (ADMIN = rouge)
+    $userColor = if ($isAdmin) { "#ff4444" } else { "#00aaff" }
+
     $symbol = if ($lastExit) {
         ColorText "➜" "#00ff88"
     } else {
@@ -30,7 +41,7 @@ function Prompt {
         (ColorText "╭─[" "#ffffff") +
         (ColorText $date "#ffffff") +
         (ColorText "] [" "#ffffff") +
-        (ColorText $user "#ffffff") +
+        (ColorText $user $userColor) +   # 👈 MODIF ICI
         (ColorText "@" "#5555ff") +
         (ColorText $hostName "#ffcc00") +
         (ColorText "]" "#ffffff") +
@@ -65,7 +76,7 @@ function pkill      { param($name) Get-Process $name | Stop-Process -Force }
 function pgrep      { param($name) Get-Process | Where-Object { $_.Name -like "*$name*" } }
 function path       { $env:PATH -split ';' | Where-Object { $_ } }
 function cut { param([string]$d=" ",[int]$f=1) process { $p = $_ -split [regex]::Escape($d); if($p.Count -ge $f){ $p[$f-1].Trim() } } }
-function Rdump { if (-not $args[0]) { $path = (Read-Host "Chemin du .dmp").Trim('"') } else { $path = $args[0] } ; cdb -z $path -c "!analyze -v; q" 2>$null | grep -E "IMAGE_NAME|FAILURE_BUCKET|SYMBOL_NAME|BUGCHECK_CODE" }
+function Rdump { if (-not $args[0]) { $path = (Read-Host "Chemin du .dmp").Trim('"') } else { $path = $args[0] } ; cdb -z $path -c "!analyze -v; q" 2>$null | grep -E "IMAGE_NAME|FAILURE_BUCKET|SYMBOL_NAME|BUGCHECK_CODE|PROCESS_NAME|STACK_TEXT|MODULE_NAME|DEFAULT_BUCKET_ID|FAILURE_ID_HASH|EXCEPTION_CODE" }
 $locateDB = "$env:USERPROFILE\.locatedb"
 function updatedb { $lastRun = if (Test-Path $locateDB) { (Get-Item $locateDB).LastWriteTime } else { [datetime]::MinValue }; Write-Host "Indexation depuis $lastRun..."; $new = Get-ChildItem C:\ -Recurse -ErrorAction SilentlyContinue -Force | Where-Object { $_.LastWriteTime -gt $lastRun } | Select-Object -ExpandProperty FullName; if (Test-Path $locateDB) { ((Get-Content $locateDB) + $new) | Sort-Object -Unique | Set-Content $locateDB } else { $new | Set-Content $locateDB }; Write-Host "Done : $((Get-Content $locateDB).Count) entrees" }
 function updatedb-full { Write-Host "Full rescan..."; Get-ChildItem C:\ -Recurse -ErrorAction SilentlyContinue -Force | Select-Object -ExpandProperty FullName | Set-Content $locateDB; Write-Host "Done : $((Get-Content $locateDB).Count) entrees" }
@@ -94,6 +105,7 @@ function lr   { Get-ChildItem -Recurse }
 function lm   { Get-ChildItem | more }
 function lw   { Get-ChildItem }
 function labc { Get-ChildItem | Sort-Object Name }
+function hist { $find = $args ; Write-Host "Finding in full history using {`$_ -like `"*$find*`"}"; Get-Content (Get-PSReadlineOption).HistorySavePath | ? {$_ -like "*$find*"} | Get-Unique | more }
 
 # FICHIERS
 function mkcd  { param($dir) New-Item -ItemType Directory $dir | Set-Location }
@@ -105,7 +117,8 @@ function tail  { param($f, $n=10) Get-Content $f | Select-Object -Last $n }
 function tailf { param($f) Get-Content $f -Wait -Tail 20 }
 function du    { param($p='.') "{0:N2} MB" -f ((Get-ChildItem $p -Recurse -File | Measure-Object Length -Sum).Sum / 1MB) }
 function clip  { param($t) Set-Clipboard $t }
-function f     { param($p) $i=Get-Item $p -ErrorAction Stop; $l=$w=$c=$e=$t=$h=$null; if(-not $i.PSIsContainer -and (Test-Path -LiteralPath $i.FullName)){try{$r=[System.IO.StreamReader]::new($i.FullName,$true);$e=$r.CurrentEncoding.EncodingName;$l=0;$w=0;$c=0;while(($line=$r.ReadLine()) -ne $null){$l++;$c+=$line.Length;$w+=($line -split '\s+'|Where-Object{$_}).Count};$r.Close();$t=switch($i.Extension.ToLower()){".txt"{"Text file"}".log"{"Log file"}".csv"{"CSV file"}".xml"{"XML file"}".json"{"JSON file"}".exe"{"Executable"}".dll"{"Library"}default{"Unknown / binary"}};$h=(Get-FileHash $i.FullName -Algorithm SHA256).Hash}catch{$e=$null;$l=$w=$c=0;$t="Unreadable file";$h=$null}finally{if($r){$r.Close()}}};[pscustomobject]@{Name=$i.Name;Path=$i.FullName;Size_KB=[math]::Round($i.Length/1KB,2);Created=$i.CreationTime;Modified=$i.LastWriteTime;Type=$(if($i.PSIsContainer){"Directory"}else{$t});Encoding=$e;Lines=$l;Words=$w;Characters=$c;SHA256=$h} }
+function f { param($p) $i=Get-Item $p -ErrorAction Stop; $l=$w=$c=$e=$t=$h=$null; if(-not $i.PSIsContainer -and (Test-Path -LiteralPath $i.FullName)){try{$r=[System.IO.StreamReader]::new($i.FullName,$true);$enc=$r.CurrentEncoding.EncodingName;$fs=[System.IO.File]::OpenRead($i.FullName);$b=New-Object byte[] 3;$fs.Read($b,0,3)|Out-Null;$fs.Close();$bom=($b[0]-eq 0xEF -and $b[1]-eq 0xBB -and $b[2]-eq 0xBF);$e=if($bom){"$enc (UTF-8 BOM)"}else{"$enc (no BOM)"};$l=0;$w=0;$c=0;while(($line=$r.ReadLine()) -ne $null){$l++;$c+=$line.Length;$w+=($line -split '\s+'|Where-Object{$_}).Count};$r.Close();$t=switch($i.Extension.ToLower()){".txt"{"Text file"}".log"{"Log file"}".csv"{"CSV file"}".xml"{"XML file"}".json"{"JSON file"}".exe"{"Executable"}".dll"{"Library"}default{"Unknown / binary"}};$h=(Get-FileHash $i.FullName -Algorithm SHA256).Hash}catch{$e=$null;$l=$w=$c=0;$t="Unreadable file";$h=$null}finally{if($r){$r.Close()}}};[pscustomobject]@{Name=$i.Name;Path=$i.FullName;Size_KB=[math]::Round($i.Length/1KB,2);Created=$i.CreationTime;Modified=$i.LastWriteTime;Type=$(if($i.PSIsContainer){"Directory"}else{$t});Encoding=$e;Lines=$l;Words=$w;Characters=$c;SHA256=$h} }function diapo { if(!$args){ $p = Read-Host "Chemin du dossier"; & $env:IRFANVIEW /slideshow="$($p.Trim('"'))" } else { & $env:IRFANVIEW /slideshow="$(($args -join ' ').Trim('"'))" } }
+
 
 # RESEAU
 function ipa      { ipconfig; route print }
@@ -150,8 +163,8 @@ function ex {
 }
 
 # PROFIL
-function reload { . $PROFILE }
-function editp  { notepad $PROFILE }
+
+function editp  { notepad $PROFILE }function reload { . $PROFILE }
 
 # AIDE
 function aliases {
